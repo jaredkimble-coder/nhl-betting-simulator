@@ -8,12 +8,14 @@ The cache, price history and predictions live on a separate branch called "state
 import os, sys, json, time, gzip, pickle, shutil, subprocess, urllib.request, urllib.parse, zlib
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ProcessPoolExecutor
+from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'engine'))
 STATE = os.environ.get('STATE_DIR', os.path.join(HERE, 'state'))
 SITE = os.environ.get('SITE_DIR', os.path.join(HERE, 'site'))
-RETAIN_HOURS = 10          # a game stays on the page this long after puck drop
+ET = ZoneInfo('America/New_York')
+ROLLOVER_HOUR = 6          # the slate changes to the next day at 6 AM Eastern, so a late game that ends after midnight stays on its own day's page
 PRED_DAYS = 14             # saved pre-game predictions are kept this long (for grading)
 WORKERS = int(os.environ.get('SIM_WORKERS', '2'))
 
@@ -23,7 +25,35 @@ def log(*a):
 
 
 def now():
-    return datetime.now(timezone.utc)
+    o = os.environ.get('NOW_OVERRIDE')          # for testing
+    return datetime.fromisoformat(o.replace('Z', '+00:00')) if o else datetime.now(timezone.utc)
+
+
+def slate_date():
+    """The day whose games the page shows: the Eastern date, rolled over at 6 AM."""
+    if os.environ.get('SLATE_DATE'):
+        return datetime.fromisoformat(os.environ['SLATE_DATE']).date()
+    return (now().astimezone(ET) - timedelta(hours=ROLLOVER_HOUR)).date()
+
+
+def game_day(p):
+    return start_of(p).astimezone(ET).date()
+
+
+def no_games_html(day, nxt):
+    import tool_build
+    when = day.strftime('%A, %B %-d')
+    soon = ('The next games are on ' + nxt.strftime('%A, %B %-d') + '.') if nxt else 'Check back on the next game day.'
+    return '''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NHL Betting Simulator | RotoWire</title>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#06152C;color:#EDF1F7;font-family:'VT323','Courier New',monospace;font-size:20px;padding:24px 12px}
+.shell{max-width:900px;margin:0 auto;border:4px solid #5C7DB0;box-shadow:8px 8px 0 #D84048;background:#06152C}
+.hdr{padding:28px 26px 22px;background:linear-gradient(135deg,#0A2247 0%,#0A1830 60%,#06152C 100%);border-bottom:4px solid #D84048}
+.hdr img{height:26px;width:auto;display:block;margin:0 0 14px}
+h1{font-family:'Press Start 2P','Courier New',monospace;font-weight:400;font-size:20px;line-height:1.5;margin:0 0 12px;text-shadow:3px 3px 0 #031024}h1 span{color:#E86A72}
+.b{padding:36px 26px}.b p{margin:0 0 12px;max-width:60ch;color:#93A4BD}.b strong{font-family:'Press Start 2P','Courier New',monospace;font-weight:400;font-size:12px;line-height:1.7;color:#EDF1F7;display:block;margin-bottom:14px}
+</style></head><body><div class="shell"><div class="hdr"><img src="''' + tool_build.lockup_uri() + '''" alt="RotoWire"><h1>NHL Betting <span>Simulator</span></h1></div>
+<div class="b"><strong>No NHL games on ''' + when + '''.</strong><p>''' + soon + '''</p><p>The simulator prices every bet for each game the day it is played.</p></div></div></body></html>'''
 
 
 def start_of(p):
@@ -112,11 +142,23 @@ def main():
     import price_history as ph, tool_build
     force = os.environ.get('FORCE', '').lower() in ('1', 'true', 'yes')
     restore_state()
-    games = [p for p in fetch_inputs() if start_of(p) > now() - timedelta(hours=RETAIN_HOURS)]
+    day = slate_date()
+    everything = fetch_inputs()
+    games = [p for p in everything if game_day(p) == day]
     games.sort(key=start_of)
-    log('inputs:', len(games), 'games |', ', '.join(p['fixture']['away']['abbr'] + '@' + p['fixture']['home']['abbr'] for p in games))
+    log('slate day', day.isoformat(), '|', len(games), 'of', len(everything), 'games on it |', ', '.join(p['fixture']['away']['abbr'] + '@' + p['fixture']['home']['abbr'] for p in games))
+    built_path0 = os.path.join(STATE, 'built.json')
     if not games:
-        log('no games on the slate; nothing to build'); out('changed', 'false'); return
+        nxt = min([game_day(p) for p in everything if game_day(p) > day] or [None], key=lambda d: d or day)
+        prev = json.load(open(built_path0)) if os.path.exists(built_path0) else {}
+        if prev.get('games') == {'no-games': day.isoformat()} and not force:
+            log('the no-games page is already up'); out('changed', 'false'); return
+        shutil.rmtree(SITE, ignore_errors=True); os.makedirs(SITE)
+        open(os.path.join(SITE, 'index.html'), 'w', encoding='utf-8').write(no_games_html(day, nxt))
+        open(os.path.join(SITE, '.nojekyll'), 'w').write('')
+        json.dump({'builtAt': now().isoformat(), 'games': {'no-games': day.isoformat()}, 'failed': []}, open(os.path.join(SITE, 'build.json'), 'w'))
+        json.dump({'games': {'no-games': day.isoformat()}, 'builtAt': now().isoformat()}, open(built_path0, 'w'))
+        prune([]); save_state(); log('built the no-games page for', day.isoformat()); out('changed', 'true'); return
     simdir, histdir, preddir = sdir('sims'), sdir('hist'), sdir('pred')
     built_path = os.path.join(STATE, 'built.json')
     built = json.load(open(built_path)) if os.path.exists(built_path) else {}
