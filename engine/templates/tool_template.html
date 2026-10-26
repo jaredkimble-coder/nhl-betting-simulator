@@ -105,7 +105,7 @@ details.grp > summary span { margin-left: auto; font-family: var(--px); font-wei
 .leg:hover { background: var(--rw-surface2); border-color: var(--edge); box-shadow: 3px 3px 0 var(--rw-navy); transform: translate(-1px, -1px); }
 .leg[aria-pressed="true"] { background: var(--rw-surface2); border-color: var(--rw-red); box-shadow: 3px 3px 0 var(--rw-red-dk); }
 .leg[aria-pressed="true"] .nm::before { content: ""; display: inline-block; vertical-align: middle; margin-right: 8px; border-left: 7px solid var(--rw-red); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
-.leg .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 20px; font-weight: 400; color: var(--rw-text); }
+.leg .nm { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.12; font-size: 20px; font-weight: 400; color: var(--rw-text); }      /* the full bet name always shows: it wraps instead of being cut off */
 .leg .nm small { color: var(--rw-dim); margin-left: 6px; font-size: 16px; }
 .leg .px { font-family: var(--px); font-weight: 400; font-size: 10px; line-height: 1.3; text-align: right; color: var(--rw-text); }
 .leg .px.k { color: var(--rw-text); }
