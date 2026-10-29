@@ -222,7 +222,7 @@ def unit_tables(lu, idx):
     t['PP5'] = (np.array([pad(u) for u in lu['pp']]), ppw)
     t['PK4'] = (np.array([pad(u) for u in lu['pk']]), pkw)
     t['PP4'] = (np.array([pad(u[:2] + u[3:5]) for u in lu['pp']]), ppw)
-    t['PK3'] = (np.array([pad([u[0], u[2], u[3]]) for u in lu['pk']]), pkw)
+    t['PK3'] = (np.array([pad((u[:1] + u[2:4]) if len(u) >= 4 else u[:3]) for u in lu['pk']]), pkw)      # a unit can be short when Daily Faceoff lists a player who is not dressed
     t['MIXF'] = (np.array([idx[p] for ln in lu['lines'] for p in ln]), np.repeat(fw, 3) / 3.0)
     t['MIXD'] = (np.array([idx[p] for pr in lu['pairs'] for p in pr]), np.repeat(dw, 2) / 2.0)
     ev4, w4 = [], []
